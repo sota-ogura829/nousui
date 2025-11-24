@@ -1,42 +1,44 @@
-using System;
 using System.Threading.Tasks;
-using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
-using Microsoft.Azure.WebJobs.Extensions.DurableTask;
+using Microsoft.DurableTask;
 
-public class TimerFunction
+namespace DurableSingleInstanceApp
 {
-    [FunctionName("TimerTriggerFunction")]
-    public async Task Run(
-        [TimerTrigger("0 */5 * * * *")] TimerInfo myTimer,
-        [DurableClient] IDurableOrchestrationClient starter,
-        ILogger log)
+    public class TimerStartFunction
     {
-        var now = DateTime.Now;
-        log.LogInformation($"Timer triggered at: {now}");
+        private readonly ILogger _logger;
 
-        // Queue に登録メッセージを送る例（任意）
-        // await queue.AddAsync("start");
-
-        string instanceId = "SingleInstance-Orchestrator";
-
-        // 既に動いているかチェック
-        var status = await starter.GetStatusAsync(instanceId);
-
-        if (status != null &&
-            status.RuntimeStatus != OrchestrationRuntimeStatus.Completed &&
-            status.RuntimeStatus != OrchestrationRuntimeStatus.Failed &&
-            status.RuntimeStatus != OrchestrationRuntimeStatus.Terminated)
+        public TimerStartFunction(ILoggerFactory loggerFactory)
         {
-            log.LogWarning($"Orchestrator already running. InstanceId={instanceId}, Status={status.RuntimeStatus}");
-            return;
+            _logger = loggerFactory.CreateLogger<TimerStartFunction>();
         }
 
-        // 新規開始
-        log.LogInformation("Starting new orchestrator instance.");
+        [Function("TimerTriggerStarter")]
+        public async Task RunAsync(
+            [TimerTrigger("0 */1 * * * *")] TimerInfo timer,
+            [DurableClient] DurableTaskClient client)
+        {
+            string instanceId = "MySingleInstance";   // 固定インスタンスID
 
-        await starter.StartNewAsync("MainOrchestrator", instanceId, null);
+            // ① 既存のオーケストレーション状態を取得
+            OrchestrationMetadata? existing = await client.GetInstanceAsync(instanceId);
 
-        log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+            // ② 実行中かチェック
+            if (existing != null &&
+                (existing.RuntimeStatus == OrchestrationRuntimeStatus.Running ||
+                 existing.RuntimeStatus == OrchestrationRuntimeStatus.Pending))
+            {
+                _logger.LogInformation($"すでに実行中のため新規起動しません。InstanceId = {instanceId}");
+                return;
+            }
+
+            // ③ 未実行 or 完了しているので新規起動
+            _logger.LogInformation($"オーケストレーションを開始します。InstanceId = {instanceId}");
+
+            await client.ScheduleNewOrchestrationInstanceAsync(
+                orchestratorName: "MainOrchestrator",
+                instanceId: instanceId);
+        }
     }
 }
