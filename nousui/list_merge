@@ -1,0 +1,26 @@
+public void AddOrMerge(
+    List<Dictionary<string, object>> list,
+    Dictionary<string, object> newItem)
+{
+    // 新規項目のキーを取得
+    string newCode = newItem["code"].ToString();
+    string newType = newItem["type"].ToString();
+    int newFlg = Convert.ToInt32(newItem["flg"]);
+
+    // 既存リストから、code と type が一致するものを検索
+    var existing = list.FirstOrDefault(x =>
+        x["code"].ToString() == newCode &&
+        x["type"].ToString() == newType);
+
+    if (existing != null)
+    {
+        // flg をマージ（どちらかが1なら1）
+        int existingFlg = Convert.ToInt32(existing["flg"]);
+        existing["flg"] = (existingFlg == 1 || newFlg == 1) ? 1 : 0;
+    }
+    else
+    {
+        // 重複がなければそのまま追加
+        list.Add(newItem);
+    }
+}
